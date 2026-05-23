@@ -1,0 +1,39 @@
+{
+  "requests": [
+    {
+      "id": "1",
+      "method": "GET",
+      "url": "/me"
+    },
+    {
+      "id": "2",
+      "method": "GET",
+      "url": "/users?$select=displayName,userPrincipalName,mail"
+    },
+    {
+      "id": "3",
+      "method": "GET",
+      "url": "/groups?$select=displayName,mail,groupTypes"
+    },
+    {
+      "id": "4",
+      "method": "GET",
+      "url": "/me/drive/root/children?$select=name,size,lastModifiedDateTime"
+    },
+    {
+      "id": "5",
+      "method": "GET",
+      "url": "/me/drive/root:/Graph API Test:/children?$select=name,size,lastModifiedDateTime,webUrl"
+    },
+    {
+      "id": "6",
+      "method": "GET",
+      "url": "/me/calendarView?startDateTime=2026-05-23T00:00:00&endDateTime=2026-06-30T23:59:59&$select=subject,start,end"
+    },
+    {
+      "id": "7",
+      "method": "GET",
+      "url": "/me/mailFolders/inbox/messages?$top=5&$select=subject,from,receivedDateTime"
+    }
+  ]
+}
