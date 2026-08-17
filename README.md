@@ -2,6 +2,11 @@
 
 Repo này dùng để lưu ghi chú và script test cho Microsoft 365 E5 Developer Sandbox.
 
+## Chuẩn bị
+
+- Tài khoản Microsoft 365 Developer Sandbox.
+- Quyền truy cập Microsoft Graph Explorer.
+
 ## Mục đích
 
 - Test Microsoft Graph API bằng Graph Explorer.
