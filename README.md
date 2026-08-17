@@ -14,9 +14,9 @@ Repo này dùng để lưu ghi chú và script test cho Microsoft 365 E5 Develop
 - Ghi lại hoạt động dev cơ bản với Microsoft 365:
   - Entra App Registration
   - OneDrive test files
-- Outlook mail test
-- Calendar event test
-- Teams / SharePoint test
+  - Outlook mail test
+  - Calendar event test
+  - Teams / SharePoint test
 
 ## Chạy batch request
 
