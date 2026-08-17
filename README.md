@@ -14,9 +14,15 @@ Repo này dùng để lưu ghi chú và script test cho Microsoft 365 E5 Develop
 - Ghi lại hoạt động dev cơ bản với Microsoft 365:
   - Entra App Registration
   - OneDrive test files
-  - Outlook mail test
-  - Calendar event test
-  - Teams / SharePoint test
+- Outlook mail test
+- Calendar event test
+- Teams / SharePoint test
+
+## Chạy batch request
+
+1. Mở Microsoft Graph Explorer và đăng nhập tenant test.
+2. Chọn phương thức `POST` với endpoint `https://graph.microsoft.com/v1.0/$batch`.
+3. Dùng nội dung `graph-batch-e5-renew.json` làm request body.
 
 ## Tenant test
 
