@@ -1,4 +1,3 @@
-<<'EOF'
 # Microsoft 365 E5 Developer Sandbox Test
 
 Repo này dùng để lưu ghi chú và script test cho Microsoft 365 E5 Developer Sandbox.
@@ -22,3 +21,4 @@ Ví dụ placeholder:
 
 ```text
 <your-tenant>.onmicrosoft.com
+```
