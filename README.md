@@ -29,6 +29,14 @@ Repo này dùng để lưu ghi chú và script test cho Microsoft 365 E5 Develop
 Các request mẫu có thể cần `User.Read`, `User.ReadBasic.All`, `Group.Read.All`,
 `Files.Read`, `Calendars.Read` và `Mail.Read`.
 
+## Kiểm tra JSON
+
+Kiểm tra cú pháp file batch trước khi gửi:
+
+```bash
+jq empty graph-batch-e5-renew.json
+```
+
 ## Tenant test
 
 Không lưu domain thật hoặc tài khoản thật trong repo public.
