@@ -1,0 +1,199 @@
+name: Microsoft Graph Test Log
+
+on:
+  workflow_dispatch:
+    inputs:
+      feature:
+        description: 'Tên tính năng kiểm thử (vd: Graph Batch + OneDrive + Metadata)'
+        required: true
+        type: string
+        default: 'Weekly Graph Sandbox Check'
+      batch:
+        description: 'Kết quả Graph Batch ($batch) - Chỉ chọn PASS khi đã kiểm thử thực tế thành công'
+        required: true
+        type: choice
+        options:
+          - NOT_RUN
+          - PASS
+          - FAIL
+        default: NOT_RUN
+      file_write:
+        description: 'Kết quả OneDrive PUT (Graph API Test) - Chỉ chọn PASS khi đã kiểm thử thực tế thành công'
+        required: true
+        type: choice
+        options:
+          - NOT_RUN
+          - PASS
+          - FAIL
+        default: NOT_RUN
+      metadata:
+        description: 'Kết quả Metadata GET - Chỉ chọn PASS khi đã kiểm thử thực tế thành công'
+        required: true
+        type: choice
+        options:
+          - NOT_RUN
+          - PASS
+          - FAIL
+        default: NOT_RUN
+      notes:
+        description: 'Ghi chú kết quả hoặc lỗi (KHÔNG nhập token, secret hoặc dữ liệu nhạy cảm)'
+        required: false
+        type: string
+        default: 'Manual verification via Microsoft Graph Explorer'
+      dry_run:
+        description: 'Chế độ DEMO / Kiểm thử workflow (chỉ hiển thị preview, không ghi vào test-log.md)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: graph-test-log-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  record-test-log:
+    name: Record Manual Graph Test Result
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Ho_Chi_Minh
+      INPUT_FEATURE: ${{ inputs.feature }}
+      INPUT_BATCH: ${{ inputs.batch }}
+      INPUT_FILE_WRITE: ${{ inputs.file_write }}
+      INPUT_METADATA: ${{ inputs.metadata }}
+      INPUT_NOTES: ${{ inputs.notes }}
+      INPUT_DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate inputs and security constraints
+        run: |
+          set -euo pipefail
+
+          # 1. Trim and check feature name
+          FEATURE_TRIMMED="$(printf '%s' "${INPUT_FEATURE}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          if [[ -z "${FEATURE_TRIMMED}" ]]; then
+            echo "::error::Trường 'feature' không được để trống."
+            exit 1
+          fi
+
+          # 2. Validate allowed status values
+          for status_var in INPUT_BATCH INPUT_FILE_WRITE INPUT_METADATA; do
+            val="${!status_var}"
+            if [[ "${val}" != "PASS" && "${val}" != "FAIL" && "${val}" != "NOT_RUN" ]]; then
+              echo "::error::Giá trị không hợp lệ cho ${status_var}: '${val}'. Chỉ chấp nhận PASS, FAIL hoặc NOT_RUN."
+              exit 1
+            fi
+          done
+
+          # 3. Reject if all test results are NOT_RUN
+          if [[ "${INPUT_BATCH}" == "NOT_RUN" && "${INPUT_FILE_WRITE}" == "NOT_RUN" && "${INPUT_METADATA}" == "NOT_RUN" ]]; then
+            echo "::error::Từ chối ghi log: Tất cả bài kiểm thử (batch, file_write, metadata) đều đang là NOT_RUN. Vui lòng thực hiện ít nhất một bài kiểm thử trước khi ghi nhật ký."
+            exit 1
+          fi
+
+          # 4. Guard against accidental inclusion of tokens/secrets/PII/IDs in public repository
+          COMBINED_TEXT="${INPUT_FEATURE} ${INPUT_NOTES}"
+          if printf '%s' "${COMBINED_TEXT}" | grep -Eqi '(eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|tempauth=|Bearer[[:space:]]+[A-Za-z0-9._~+/-]+=*|client_secret|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\.onmicrosoft\.com)'; then
+            echo "::error::Phát hiện dữ liệu nhạy cảm hoặc định danh (Token, Secret, Email, Tenant/User/File UUID, hoặc domain .onmicrosoft.com). Repository đang ở chế độ PUBLIC, vui lòng loại bỏ trước khi ghi log."
+            exit 1
+          fi
+
+          # 5. Validate existing batch JSON file remains intact
+          if [[ -f "graph-batch-e5-renew.json" ]]; then
+            jq empty graph-batch-e5-renew.json
+          fi
+
+      - name: Append test log entry
+        run: |
+          set -euo pipefail
+
+          TIMESTAMP="$(TZ=Asia/Ho_Chi_Minh date '+%Y-%m-%d %H:%M')"
+          FEATURE_CLEAN="$(printf '%s' "${INPUT_FEATURE}" | tr '\r\n' '  ' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          NOTES_CLEAN="$(printf '%s' "${INPUT_NOTES:-No additional notes}" | tr '\r\n' '  ' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          if [[ -z "${NOTES_CLEAN}" ]]; then
+            NOTES_CLEAN="No additional notes"
+          fi
+
+          ENTRY_FILE="$(mktemp)"
+          cat <<EOF > "${ENTRY_FILE}"
+
+          ---
+
+          **Date:** ${TIMESTAMP} (Asia/Ho_Chi_Minh)
+
+          **Project:** Zoka Graph Test App
+
+          **Feature:** ${FEATURE_CLEAN}
+
+          **Test Results:**
+          - Graph Batch: ${INPUT_BATCH}
+          - OneDrive PUT: ${INPUT_FILE_WRITE}
+          - Metadata GET: ${INPUT_METADATA}
+
+          **Notes:** ${NOTES_CLEAN}
+
+          **Execution:** Manual verification recorded via GitHub Actions
+          EOF
+          # Remove leading indentation from heredoc
+          sed -i 's/^          //' "${ENTRY_FILE}"
+
+          echo "### Bản xem trước mục nhật ký (Log Entry Preview)" >> "${GITHUB_STEP_SUMMARY}"
+          cat "${ENTRY_FILE}" >> "${GITHUB_STEP_SUMMARY}"
+
+          if [[ "${INPUT_DRY_RUN}" == "true" ]]; then
+            echo "" >> "${GITHUB_STEP_SUMMARY}"
+            echo "> **Chế độ DEMO (`dry_run: true`)**: Đã xác minh định dạng nhật ký. Không ghi vào \`test-log.md\` thực tế." >> "${GITHUB_STEP_SUMMARY}"
+            echo "Chế độ DEMO (dry_run=true): Chỉ hiển thị bản xem trước, không sửa đổi test-log.md."
+            cat "${ENTRY_FILE}"
+            rm -f "${ENTRY_FILE}"
+            exit 0
+          fi
+
+          if [[ ! -f "test-log.md" || ! -s "test-log.md" ]]; then
+            cat <<'HEADER' > test-log.md
+          # Microsoft Graph Test Log
+
+          Nhật ký kiểm thử thủ công Microsoft Graph API được ghi nhận qua GitHub Actions (`graph-test-log.yml`).
+          HEADER
+            sed -i 's/^          //' test-log.md
+          fi
+
+          cat "${ENTRY_FILE}" >> test-log.md
+          rm -f "${ENTRY_FILE}"
+
+      - name: Commit and push test-log.md
+        if: ${{ inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- test-log.md; then
+            echo "Không có thay đổi nào trong test-log.md."
+            exit 0
+          fi
+
+          TIMESTAMP="$(TZ=Asia/Ho_Chi_Minh date '+%Y-%m-%d %H:%M')"
+          git add test-log.md
+          git commit -m "docs(log): record Graph API test result (${TIMESTAMP})"
+
+          TARGET_BRANCH="${GITHUB_REF_NAME}"
+          git pull --rebase origin "${TARGET_BRANCH}"
+
+          if git push origin "HEAD:${TARGET_BRANCH}"; then
+            echo "Đã commit và push thành công vào nhánh ${TARGET_BRANCH}."
+          else
+            echo "::warning::Không thể push trực tiếp vào nhánh '${TARGET_BRANCH}' (có thể do Branch Protection). Đang chuyển sang tạo nhánh phụ..."
+            FALLBACK_BRANCH="log/graph-test-$(TZ=Asia/Ho_Chi_Minh date '+%Y%m%d-%H%M%S')"
+            git push origin "HEAD:refs/heads/${FALLBACK_BRANCH}"
+            echo "::notice::Đã đẩy log lên nhánh '${FALLBACK_BRANCH}'. Hãy tạo Pull Request vào '${TARGET_BRANCH}' (hoặc cấp quyền pull-requests: write / cấu hình Bypass Branch Protection cho GitHub Actions)."
+          fi

@@ -1,0 +1,101 @@
+name: Weekly GitHub & M365 Activity Summary
+
+on:
+  schedule:
+    # Chạy định kỳ vào 08:00 sáng Thứ Hai hằng tuần theo giờ Việt Nam (01:00 UTC)
+    - cron: '0 1 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Chế độ DEMO / Kiểm thử (chỉ hiển thị bản xem trước, không ghi vào logs/weekly-summary.md)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-activity-summary-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  generate-weekly-summary:
+    name: Generate Sanitized Weekly Activity Summary
+    # Chỉ chạy trên nhánh mặc định đáng tin cậy (main), không bao giờ chạy trên PR hoặc do bot kích hoạt
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request' &&
+      github.event_name != 'pull_request_target' &&
+      github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      actions: read
+    env:
+      TZ: Asia/Ho_Chi_Minh
+      INPUT_DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate sanitized weekly summary
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          if [[ "${INPUT_DRY_RUN}" == "true" ]]; then
+            python3 scripts/generate_weekly_summary.py --dry-run
+          else
+            python3 scripts/generate_weekly_summary.py --output logs/weekly-summary.md
+          fi
+
+      - name: Verify output contains no sensitive patterns
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f "logs/weekly-summary.md" ]]; then
+            echo "::error::Không tìm thấy file logs/weekly-summary.md."
+            exit 1
+          fi
+          if grep -Eqi '(eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}|tempauth=|Bearer[[:space:]]+[A-Za-z0-9._~+/-]{12,}|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\.onmicrosoft\.com)' logs/weekly-summary.md; then
+            echo "::error::Phát hiện dữ liệu định danh hoặc nhạy cảm trong logs/weekly-summary.md. Đã hủy bước commit."
+            exit 1
+          fi
+
+      - name: Commit and push if summary changed
+        if: ${{ inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add logs/weekly-summary.md
+          if git diff --cached --quiet -- logs/weekly-summary.md; then
+            echo "Không có thay đổi thực tế về số liệu trong tuần này; bỏ qua commit để tránh trùng lặp."
+            exit 0
+          fi
+
+          WEEK_ID="$(TZ=Asia/Ho_Chi_Minh date '+%G-W%V')"
+          git commit -m "chore(summary): update weekly activity summary (${WEEK_ID}) [skip ci]"
+
+          TARGET_BRANCH="${GITHUB_REF_NAME}"
+          git pull --rebase origin "${TARGET_BRANCH}"
+
+          if git push origin "HEAD:${TARGET_BRANCH}"; then
+            echo "Đã cập nhật logs/weekly-summary.md cho tuần ${WEEK_ID}."
+          else
+            echo "::warning::Không thể push trực tiếp vào nhánh '${TARGET_BRANCH}'. Đang đẩy sang nhánh phụ..."
+            FALLBACK_BRANCH="summary/weekly-${WEEK_ID}-$(TZ=Asia/Ho_Chi_Minh date '+%H%M%S')"
+            git push origin "HEAD:refs/heads/${FALLBACK_BRANCH}"
+            echo "::notice::Đã đẩy báo cáo lên nhánh '${FALLBACK_BRANCH}'."
+          fi
