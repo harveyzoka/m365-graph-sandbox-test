@@ -15,6 +15,7 @@ Security & Privacy Guarantees (Public Repository Safe):
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import hashlib
 import json
@@ -291,11 +292,72 @@ def collect_github_metrics(
     }
 
 
+EXPECTED_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
+EXPECTED_OIDC_AUDIENCE = "api://AzureADTokenExchange"
+EXPECTED_OIDC_SUBJECT = (
+    "repo:harveyzoka@109170110/m365-graph-sandbox-test@1247537740:ref:refs/heads/main"
+)
+
+
+def inspect_oidc_jwt_claims(jwt_token: str) -> dict[str, str]:
+    """Decode JWT payload in-memory and return only MATCH/MISMATCH status for iss, aud, sub.
+
+    Never prints or returns raw JWT segments or sensitive claims.
+    """
+    parts = jwt_token.split(".")
+    if len(parts) != 3:
+        return {"iss": "INVALID_JWT", "aud": "INVALID_JWT", "sub": "INVALID_JWT"}
+    try:
+        payload_b64 = parts[1]
+        padding = "=" * (-len(payload_b64) % 4)
+        payload_bytes = base64.urlsafe_b64decode(payload_b64 + padding)
+        claims = json.loads(payload_bytes.decode("utf-8", errors="replace"))
+        if not isinstance(claims, dict):
+            return {"iss": "INVALID_PAYLOAD", "aud": "INVALID_PAYLOAD", "sub": "INVALID_PAYLOAD"}
+
+        iss_val = str(claims.get("iss") or "")
+        aud_val = claims.get("aud")
+        sub_val = str(claims.get("sub") or "")
+
+        iss_match = "MATCH" if iss_val == EXPECTED_OIDC_ISSUER else "MISMATCH"
+        if isinstance(aud_val, list):
+            aud_match = "MATCH" if EXPECTED_OIDC_AUDIENCE in aud_val else "MISMATCH"
+        else:
+            aud_match = "MATCH" if str(aud_val or "") == EXPECTED_OIDC_AUDIENCE else "MISMATCH"
+
+        if sub_val == EXPECTED_OIDC_SUBJECT:
+            sub_match = "MATCH (Immutable Subject)"
+        elif sub_val == "repo:harveyzoka/m365-graph-sandbox-test:ref:refs/heads/main":
+            sub_match = "MISMATCH (Default mutable subject; Immutable Subject not active)"
+        else:
+            sub_match = "MISMATCH"
+
+        return {"iss": iss_match, "aud": aud_match, "sub": sub_match}
+    except Exception:
+        return {"iss": "DECODE_ERROR", "aud": "DECODE_ERROR", "sub": "DECODE_ERROR"}
+
+
+def extract_safe_aadsts_error(exc: urllib.error.HTTPError) -> str:
+    """Extract only HTTP status and AADSTS error code without exposing raw response or IDs."""
+    http_code = exc.code
+    aadsts_code = ""
+    try:
+        raw_err = exc.read().decode("utf-8", errors="replace")
+        match = re.search(r"\b(AADSTS\d+)\b", raw_err)
+        if match:
+            aadsts_code = match.group(1)
+    except Exception:
+        pass
+    if aadsts_code:
+        return f"HTTP {http_code} ({aadsts_code})"
+    return f"HTTP {http_code}"
+
+
 def acquire_graph_token() -> tuple[str | None, str]:
     """Acquire Microsoft Graph access token via OIDC (preferred) or Client Secret.
 
     Returns (access_token_or_none, auth_mode_description).
-    Never prints credentials or error responses.
+    Never prints credentials, JWTs, tenant IDs, or raw error responses.
     """
     tenant_id = os.environ.get("AZURE_TENANT_ID", "").strip()
     client_id = os.environ.get("AZURE_CLIENT_ID", "").strip()
@@ -304,6 +366,14 @@ def acquire_graph_token() -> tuple[str | None, str]:
     mask_in_actions(tenant_id)
     mask_in_actions(client_id)
     mask_in_actions(client_secret)
+
+    has_tenant = bool(tenant_id)
+    has_client = bool(client_id)
+    print(
+        f"OIDC Diagnostic: AZURE_TENANT_ID configured={has_tenant}, "
+        f"AZURE_CLIENT_ID configured={has_client}",
+        flush=True,
+    )
 
     if not tenant_id or not client_id:
         return None, "UNAVAILABLE (Credentials not configured)"
@@ -315,6 +385,10 @@ def acquire_graph_token() -> tuple[str | None, str]:
     oidc_req_token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "").strip()
     mask_in_actions(oidc_req_token)
 
+    has_oidc_env = bool(oidc_req_url and oidc_req_token)
+    print(f"OIDC Diagnostic: id-token environment available={has_oidc_env}", flush=True)
+
+    oidc_error_detail = ""
     if oidc_req_url and oidc_req_token:
         sep = "&" if "?" in oidc_req_url else "?"
         audience_url = f"{oidc_req_url}{sep}audience=api://AzureADTokenExchange"
@@ -331,8 +405,20 @@ def acquire_graph_token() -> tuple[str | None, str]:
             if status == 200 and isinstance(oidc_data, dict)
             else ""
         )
-        if federated_jwt:
+        if not federated_jwt:
+            print(
+                f"OIDC Diagnostic: GitHub OIDC JWT acquisition failed (HTTP {status})",
+                flush=True,
+            )
+            oidc_error_detail = f"GitHub OIDC HTTP {status}"
+        else:
             mask_in_actions(federated_jwt)
+            claim_check = inspect_oidc_jwt_claims(federated_jwt)
+            print(
+                "OIDC Diagnostic: JWT Claim Verification -> "
+                f"iss={claim_check['iss']}, aud={claim_check['aud']}, sub={claim_check['sub']}",
+                flush=True,
+            )
             body = urllib.parse.urlencode(
                 {
                     "client_id": client_id,
@@ -355,9 +441,25 @@ def acquire_graph_token() -> tuple[str | None, str]:
                         access_token = str(payload.get("access_token") or "").strip()
                         if access_token:
                             mask_in_actions(access_token)
+                            print(
+                                "OIDC Diagnostic: Microsoft Entra token exchange=SUCCESS "
+                                "(OIDC Federated Credentials)",
+                                flush=True,
+                            )
                             return access_token, "OIDC Federated Credentials"
+            except urllib.error.HTTPError as exc:
+                safe_err = extract_safe_aadsts_error(exc)
+                print(
+                    f"OIDC Diagnostic: Microsoft Entra token exchange=FAILED ({safe_err})",
+                    flush=True,
+                )
+                oidc_error_detail = f"Entra OIDC {safe_err}"
             except Exception:
-                pass
+                print(
+                    "OIDC Diagnostic: Microsoft Entra token exchange=FAILED (Network/Request Error)",
+                    flush=True,
+                )
+                oidc_error_detail = "Entra OIDC Request Error"
 
     # 2. Fallback to Client Secret if provided
     if client_secret:
@@ -383,9 +485,14 @@ def acquire_graph_token() -> tuple[str | None, str]:
                     if access_token:
                         mask_in_actions(access_token)
                         return access_token, "GitHub Secrets (Client Credentials)"
+        except urllib.error.HTTPError as exc:
+            safe_err = extract_safe_aadsts_error(exc)
+            return None, f"UNAVAILABLE (Token exchange failed: {safe_err})"
         except Exception:
             return None, "UNAVAILABLE (Token exchange failed)"
 
+    if oidc_error_detail:
+        return None, f"UNAVAILABLE ({oidc_error_detail})"
     return None, "UNAVAILABLE (No valid OIDC assertion or Client Secret)"
 
 
@@ -408,18 +515,25 @@ def collect_m365_metrics(window_start_utc: dt.datetime) -> dict[str, str]:
         "User-Agent": "m365-graph-sandbox-activity-tracker",
     }
 
-    def count_collection(endpoint: str) -> str:
+    def count_collection(endpoint: str, required_perm: str) -> str:
         status, payload = safe_http_get_json(endpoint, headers)
         if status == 200 and isinstance(payload, dict) and isinstance(payload.get("value"), list):
             return str(len(payload["value"]))
         if status in (401, 403):
-            return "UNAVAILABLE (Permission not granted)"
-        return "UNAVAILABLE"
+            return f"UNAVAILABLE (HTTP {status} - Missing {required_perm})"
+        return f"UNAVAILABLE (HTTP {status})" if status else "UNAVAILABLE"
 
-    users_count = count_collection("https://graph.microsoft.com/v1.0/users?$top=999&$select=id")
-    groups_count = count_collection("https://graph.microsoft.com/v1.0/groups?$top=999&$select=id")
+    users_count = count_collection(
+        "https://graph.microsoft.com/v1.0/users?$top=999&$select=id",
+        "User.Read.All / Directory.Read.All",
+    )
+    groups_count = count_collection(
+        "https://graph.microsoft.com/v1.0/groups?$top=999&$select=id",
+        "Group.Read.All / Directory.Read.All",
+    )
     apps_count = count_collection(
-        "https://graph.microsoft.com/v1.0/applications?$top=999&$select=id"
+        "https://graph.microsoft.com/v1.0/applications?$top=999&$select=id",
+        "Application.Read.All / Directory.Read.All",
     )
 
     since_iso = window_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -443,9 +557,9 @@ def collect_m365_metrics(window_start_utc: dt.datetime) -> dict[str, str]:
         )
         directory_audits_7d = f"{total_ev} events ({success_ev} success)"
     elif da_status in (401, 403):
-        directory_audits_7d = "UNAVAILABLE (Requires AuditLog.Read.All)"
+        directory_audits_7d = f"UNAVAILABLE (HTTP {da_status} - Missing AuditLog.Read.All)"
     else:
-        directory_audits_7d = "UNAVAILABLE"
+        directory_audits_7d = f"UNAVAILABLE (HTTP {da_status})" if da_status else "UNAVAILABLE"
 
     signin_filter = urllib.parse.quote(f"createdDateTime ge {since_iso}")
     signin_url = (
@@ -460,9 +574,9 @@ def collect_m365_metrics(window_start_utc: dt.datetime) -> dict[str, str]:
     ):
         signin_audits_7d = f"{len(si_payload['value'])} events"
     elif si_status in (401, 403):
-        signin_audits_7d = "UNAVAILABLE (Requires AuditLog.Read.All)"
+        signin_audits_7d = f"UNAVAILABLE (HTTP {si_status} - Missing AuditLog.Read.All)"
     else:
-        signin_audits_7d = "UNAVAILABLE"
+        signin_audits_7d = f"UNAVAILABLE (HTTP {si_status})" if si_status else "UNAVAILABLE"
 
     return {
         "auth_mode": auth_mode,
