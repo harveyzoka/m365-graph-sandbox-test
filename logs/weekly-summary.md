@@ -8,11 +8,11 @@ Báo cáo tổng hợp tự động hằng tuần cho dự án **Zoka Graph Test
 > - Các hạng mục Microsoft Graph chưa được cấp quyền hoặc chưa cấu hình xác thực sẽ hiển thị `UNAVAILABLE`, tuyệt đối không tạo dữ liệu giả.
 
 <!-- WEEK:2026-W46 -->
-<!-- FINGERPRINT:57526746c8d1 -->
+<!-- FINGERPRINT:2bcf61f13ee3 -->
 ## Week 2026-W46
 
 - **Reporting Window:** 2026-11-03 to 2026-11-10 (Asia/Ho_Chi_Minh)
-- **Last Updated:** 2026-11-10 20:38 (Asia/Ho_Chi_Minh)
+- **Last Updated:** 2026-11-10 20:51 (Asia/Ho_Chi_Minh)
 - **Project:** Zoka Graph Test App (`m365-graph-sandbox-test`)
 - **Privacy Level:** Public-Safe Aggregated Summary (PII & IDs Stripped)
 
@@ -21,7 +21,7 @@ Báo cáo tổng hợp tự động hằng tuần cho dự án **Zoka Graph Test
 | Metric | Value |
 | :--- | :--- |
 | Data Source | Local Git History |
-| Developer Commits | 1 |
+| Developer Commits | 2 |
 | Automated Log Commits | 0 |
 | Active Commit Days | 1 |
 | Push Events (Public API) | UNAVAILABLE |

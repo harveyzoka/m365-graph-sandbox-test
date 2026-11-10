@@ -67,7 +67,7 @@ jobs:
       INPUT_DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -91,10 +91,14 @@ jobs:
             fi
           done
 
-          # 3. Reject if all test results are NOT_RUN
+          # 3. When dry_run=false, require at least one real test (PASS or FAIL); allow all NOT_RUN when dry_run=true
           if [[ "${INPUT_BATCH}" == "NOT_RUN" && "${INPUT_FILE_WRITE}" == "NOT_RUN" && "${INPUT_METADATA}" == "NOT_RUN" ]]; then
-            echo "::error::Từ chối ghi log: Tất cả bài kiểm thử (batch, file_write, metadata) đều đang là NOT_RUN. Vui lòng thực hiện ít nhất một bài kiểm thử trước khi ghi nhật ký."
-            exit 1
+            if [[ "${INPUT_DRY_RUN}" == "true" ]]; then
+              echo "::notice::Chế độ DEMO (dry_run=true): Cho phép tất cả bài kiểm thử là NOT_RUN để kiểm tra workflow và hiển thị bản preview."
+            else
+              echo "::error::Từ chối ghi log: Khi dry_run=false, cần ít nhất một bài kiểm thử thật có trạng thái PASS hoặc FAIL (hiện tại batch, file_write, metadata đều là NOT_RUN)."
+              exit 1
+            fi
           fi
 
           # 4. Guard against accidental inclusion of tokens/secrets/PII/IDs in public repository
@@ -148,7 +152,7 @@ jobs:
 
           if [[ "${INPUT_DRY_RUN}" == "true" ]]; then
             echo "" >> "${GITHUB_STEP_SUMMARY}"
-            echo "> **Chế độ DEMO (`dry_run: true`)**: Đã xác minh định dạng nhật ký. Không ghi vào \`test-log.md\` thực tế." >> "${GITHUB_STEP_SUMMARY}"
+            echo '> **Chế độ DEMO (`dry_run: true`)**: Đã xác minh định dạng nhật ký. Không ghi vào `test-log.md` thực tế.' >> "${GITHUB_STEP_SUMMARY}"
             echo "Chế độ DEMO (dry_run=true): Chỉ hiển thị bản xem trước, không sửa đổi test-log.md."
             cat "${ENTRY_FILE}"
             rm -f "${ENTRY_FILE}"
@@ -173,6 +177,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          if [[ "${INPUT_DRY_RUN}" == "true" ]]; then
+            echo "Chế độ DEMO (dry_run=true): Tuyệt đối không ghi test-log.md hoặc tạo commit."
+            exit 0
+          fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

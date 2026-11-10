@@ -72,12 +72,13 @@ Các tham số đầu vào của `workflow_dispatch`:
 - **`file_write`**: Kết quả kiểm thử ghi file lên thư mục OneDrive `Graph API Test` bằng phương thức `PUT` (`PASS` / `FAIL` / `NOT_RUN`, mặc định: `NOT_RUN`).
 - **`metadata`**: Kết quả kiểm thử truy vấn metadata bằng phương thức `GET` (`PASS` / `FAIL` / `NOT_RUN`, mặc định: `NOT_RUN`).
 - **`notes`**: Ghi chú ngắn gọn về kết quả hoặc mã lỗi HTTP nếu có. **Tuyệt đối không** dán Access Token, Refresh Token, Client Secret, hoặc URL tải file có chứa `tempauth` token.
-- **`dry_run`**: Tùy chọn chạy thử nghiệm (`true` / `false`, mặc định: `false`). Khi bật `true`, workflow chỉ hiển thị bản xem trước trong Job Summary mà không ghi vào `test-log.md`.
+- **`dry_run`**: Tùy chọn chạy thử nghiệm (`true` / `false`, mặc định: `false`). Khi bật `true`, workflow cho phép tất cả bài kiểm thử là `NOT_RUN` để kiểm tra luồng hoạt động và chỉ hiển thị bản xem trước trong Job Summary mà không ghi vào `test-log.md`.
 
 **Quy tắc ghi nhận:**
 - Mặc định tất cả trạng thái là `NOT_RUN`.
 - Chỉ chọn `PASS` cho những hạng mục đã thực sự chạy và xác nhận thành công.
-- Nếu cả 3 hạng mục (`batch`, `file_write`, `metadata`) đều để `NOT_RUN`, workflow sẽ **từ chối ghi log** và báo lỗi để tránh ghi nhận rỗng.
+- Khi `dry_run=false`, nếu cả 3 hạng mục (`batch`, `file_write`, `metadata`) đều để `NOT_RUN`, workflow sẽ **từ chối ghi log** và báo lỗi để tránh ghi nhận rỗng.
+- Khi `dry_run=true` (chế độ DEMO), cho phép tất cả là `NOT_RUN` để xem trước định dạng nhưng tuyệt đối không chỉnh sửa `test-log.md` hay tạo commit.
 
 ### 4. Cách xem lịch sử `test-log.md`
 
@@ -86,10 +87,10 @@ Các tham số đầu vào của `workflow_dispatch`:
 
 ### 5. Cách xử lý lỗi workflow
 
-- **Lỗi tất cả bài test đều `NOT_RUN`**: Cần chọn ít nhất một hạng mục có kết quả thực tế (`PASS` hoặc `FAIL`) trước khi bấm chạy.
+- **Lỗi tất cả bài test đều `NOT_RUN` (khi `dry_run=false`)**: Cần chọn ít nhất một hạng mục có kết quả thực tế (`PASS` hoặc `FAIL`) trước khi bấm chạy ghi log thật, hoặc bật `dry_run=true` nếu chỉ muốn chạy kiểm tra DEMO.
 - **Lỗi phát hiện dữ liệu nhạy cảm**: Kiểm tra lại trường `feature` và `notes`, xóa mọi chuỗi JWT (`eyJ...`), `Bearer ...`, `tempauth=` hoặc `client_secret`.
 - **Lỗi `Permission to ... denied to github-actions[bot]` (403)**:
-  - Vào **Settings** → **Actions** → **General** → mục **Workflow permissions**, 확인 đã bật **Read and write permissions** (hoặc workflow đã khai báo `permissions: contents: write`).
+  - Vào **Settings** → **Actions** → **General** → mục **Workflow permissions**, kiểm tra đã bật **Read and write permissions** (hoặc workflow đã khai báo `permissions: contents: write`).
 - **Lỗi không thể push trực tiếp do Branch Protection trên nhánh `main`**:
   - Workflow sẽ tự động đẩy commit sang nhánh phụ `log/graph-test-YYYYMMDD-HHMMSS` để không làm mất log; sau đó bạn có thể tạo Pull Request vào `main`.
   - Để cho phép push tự động, có thể thêm `github-actions[bot]` vào danh sách **Allow specified actors to bypass required pull requests** trong cấu hình Branch Protection / Ruleset của nhánh `main`.

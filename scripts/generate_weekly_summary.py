@@ -85,12 +85,33 @@ def safe_http_get_json(
         return 0, None
 
 
+def detect_github_repo() -> str:
+    """Return 'owner/repo' from GITHUB_REPOSITORY env or git remote.origin.url."""
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if repo and "/" in repo:
+        return repo
+    try:
+        proc = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        remote_url = proc.stdout.strip()
+        match = re.search(r"github\.com[:/]([^/]+/[^/.]+?)(?:\.git)?$", remote_url)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return ""
+
+
 def collect_github_metrics(
     window_start_utc: dt.datetime,
     window_end_utc: dt.datetime,
 ) -> dict[str, str]:
     """Collect 7-day GitHub repository activity metrics."""
-    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    repo = detect_github_repo()
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     mask_in_actions(token)
 
