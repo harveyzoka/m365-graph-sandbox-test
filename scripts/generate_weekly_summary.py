@@ -482,8 +482,10 @@ def render_week_block(
     m365_metrics: dict[str, str],
 ) -> tuple[str, str]:
     """Render sanitized markdown block for a week and return (fingerprint, block_markdown)."""
+    # Exclude bot_commits from fingerprint so automated summary commits never trigger another summary commit
+    gh_fingerprint_metrics = {k: v for k, v in gh_metrics.items() if k != "bot_commits"}
     fingerprint_payload = json.dumps(
-        {"week": week_id, "github": gh_metrics, "m365": m365_metrics},
+        {"week": week_id, "github": gh_fingerprint_metrics, "m365": m365_metrics},
         sort_keys=True,
     )
     fingerprint = hashlib.sha256(fingerprint_payload.encode("utf-8")).hexdigest()[:12]
