@@ -168,22 +168,39 @@ def collect_github_metrics(
             bot_commits = bot_count
             active_days = len(days_set)
 
-        # 2. Query repository PushEvents in window
-        events_url = f"https://api.github.com/repos/{repo}/events?per_page=100"
-        ev_status, ev_data = safe_http_get_json(events_url, headers)
-        if ev_status == 200 and isinstance(ev_data, list):
+        # 2. Query repository push activity in window (/activity endpoint, fallback to /events)
+        activity_url = f"https://api.github.com/repos/{repo}/activity?per_page=100"
+        act_status, act_data = safe_http_get_json(activity_url, headers)
+        if act_status == 200 and isinstance(act_data, list):
             pushes = 0
-            for ev in ev_data:
-                if not isinstance(ev, dict) or ev.get("type") != "PushEvent":
+            for act in act_data:
+                if not isinstance(act, dict):
                     continue
-                created_at = str(ev.get("created_at") or "")
-                if created_at >= since_iso and created_at <= until_iso:
-                    actor = str((ev.get("actor") or {}).get("login") or "").lower()
+                act_type = str(act.get("activity_type") or "")
+                if act_type not in ("push", "branch_creation"):
+                    continue
+                ts = str(act.get("timestamp") or "")
+                if ts >= since_iso and ts <= until_iso:
+                    actor = str((act.get("actor") or {}).get("login") or "").lower()
                     if "github-actions" not in actor:
                         pushes += 1
             push_events = str(pushes)
+        else:
+            events_url = f"https://api.github.com/repos/{repo}/events?per_page=100"
+            ev_status, ev_data = safe_http_get_json(events_url, headers)
+            if ev_status == 200 and isinstance(ev_data, list):
+                pushes = 0
+                for ev in ev_data:
+                    if not isinstance(ev, dict) or ev.get("type") != "PushEvent":
+                        continue
+                    created_at = str(ev.get("created_at") or "")
+                    if created_at >= since_iso and created_at <= until_iso:
+                        actor = str((ev.get("actor") or {}).get("login") or "").lower()
+                        if "github-actions" not in actor:
+                            pushes += 1
+                push_events = str(pushes)
 
-        # 3. Query Actions workflow runs in window
+        # 3. Query Actions workflow runs in window (excluding this summary workflow itself to prevent fingerprint loops)
         created_range = f"{since_iso}..{until_iso}"
         runs_url = (
             f"https://api.github.com/repos/{repo}/actions/runs"
@@ -201,6 +218,13 @@ def collect_github_metrics(
                     if not isinstance(r, dict):
                         continue
                     if current_run_id and str(r.get("id")) == current_run_id:
+                        continue
+                    wf_path = str(r.get("path") or "")
+                    wf_name = str(r.get("name") or "")
+                    if (
+                        wf_path.endswith("weekly-activity-summary.yml")
+                        or wf_name == "Weekly GitHub & M365 Activity Summary"
+                    ):
                         continue
                     if r.get("status") != "completed":
                         continue

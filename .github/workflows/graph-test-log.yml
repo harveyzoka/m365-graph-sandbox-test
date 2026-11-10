@@ -48,6 +48,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: graph-test-log-${{ github.ref }}
@@ -192,17 +193,97 @@ jobs:
           fi
 
           TIMESTAMP="$(TZ=Asia/Ho_Chi_Minh date '+%Y-%m-%d %H:%M')"
-          git add test-log.md
-          git commit -m "docs(log): record Graph API test result (${TIMESTAMP})"
-
+          COMMIT_MSG="docs(log): record Graph API test result (${TIMESTAMP})"
           TARGET_BRANCH="${GITHUB_REF_NAME}"
-          git pull --rebase origin "${TARGET_BRANCH}"
+          LOG_B64="$(base64 -w 0 test-log.md)"
 
-          if git push origin "HEAD:${TARGET_BRANCH}"; then
-            echo "Đã commit và push thành công vào nhánh ${TARGET_BRANCH}."
-          else
-            echo "::warning::Không thể push trực tiếp vào nhánh '${TARGET_BRANCH}' (có thể do Branch Protection). Đang chuyển sang tạo nhánh phụ..."
-            FALLBACK_BRANCH="log/graph-test-$(TZ=Asia/Ho_Chi_Minh date '+%Y%m%d-%H%M%S')"
-            git push origin "HEAD:refs/heads/${FALLBACK_BRANCH}"
-            echo "::notice::Đã đẩy log lên nhánh '${FALLBACK_BRANCH}'. Hãy tạo Pull Request vào '${TARGET_BRANCH}' (hoặc cấp quyền pull-requests: write / cấu hình Bypass Branch Protection cho GitHub Actions)."
+          git add test-log.md
+          git commit -m "${COMMIT_MSG}"
+          git pull --rebase origin "${TARGET_BRANCH}" || true
+
+          put_log_via_api() {
+            local branch_name="$1"
+            local existing_sha=""
+            existing_sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/test-log.md?ref=${branch_name}" --jq '.sha' 2>/dev/null || true)"
+            local payload_file
+            payload_file="$(mktemp)"
+            if [[ -n "${existing_sha}" ]]; then
+              jq -n \
+                --arg msg "${COMMIT_MSG}" \
+                --arg content "${LOG_B64}" \
+                --arg branch "${branch_name}" \
+                --arg sha "${existing_sha}" \
+                '{message: $msg, content: $content, branch: $branch, sha: $sha, committer: {name: "github-actions[bot]", email: "41898282+github-actions[bot]@users.noreply.github.com"}}' > "${payload_file}"
+            else
+              jq -n \
+                --arg msg "${COMMIT_MSG}" \
+                --arg content "${LOG_B64}" \
+                --arg branch "${branch_name}" \
+                '{message: $msg, content: $content, branch: $branch, committer: {name: "github-actions[bot]", email: "41898282+github-actions[bot]@users.noreply.github.com"}}' > "${payload_file}"
+            fi
+            local rc=0
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/test-log.md" --input "${payload_file}" >/dev/null 2>&1 || rc=$?
+            rm -f "${payload_file}"
+            return "${rc}"
+          }
+
+          MAIN_PUSH_OK="false"
+          PUSH_ERR_LOG="$(mktemp)"
+          for attempt in 1 2; do
+            if git push origin "HEAD:${TARGET_BRANCH}" 2>"${PUSH_ERR_LOG}"; then
+              MAIN_PUSH_OK="true"
+              echo "Đã commit và push thành công vào nhánh ${TARGET_BRANCH} (git push)."
+              break
+            fi
+            sleep 2
+          done
+
+          if [[ "${MAIN_PUSH_OK}" != "true" ]]; then
+            echo "::notice::git push trực tiếp vào '${TARGET_BRANCH}' không thành công ($(tr '\n' ' ' < "${PUSH_ERR_LOG}")). Đang thử cập nhật qua GitHub Contents API..."
+            if put_log_via_api "${TARGET_BRANCH}"; then
+              MAIN_PUSH_OK="true"
+              echo "Đã cập nhật trực tiếp test-log.md trên nhánh '${TARGET_BRANCH}' (GitHub Contents API)."
+            fi
           fi
+
+          if [[ "${MAIN_PUSH_OK}" == "true" ]]; then
+            rm -f "${PUSH_ERR_LOG}"
+            exit 0
+          fi
+
+          echo "::warning::Không thể push trực tiếp vào nhánh '${TARGET_BRANCH}'. Đang chuyển sang tạo nhánh phụ và Pull Request..."
+          FALLBACK_BRANCH="log/graph-test-$(TZ=Asia/Ho_Chi_Minh date '+%Y%m%d-%H%M%S')"
+          FALLBACK_ERR_LOG="$(mktemp)"
+          BRANCH_PUSH_OK="false"
+          if git push origin "HEAD:refs/heads/${FALLBACK_BRANCH}" 2>"${FALLBACK_ERR_LOG}"; then
+            BRANCH_PUSH_OK="true"
+          else
+            BASE_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${TARGET_BRANCH}" --jq '.object.sha' 2>/dev/null || git rev-parse origin/"${TARGET_BRANCH}")"
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/heads/${FALLBACK_BRANCH}" \
+              -f sha="${BASE_SHA}" >/dev/null 2>&1 || true
+            if put_log_via_api "${FALLBACK_BRANCH}"; then
+              BRANCH_PUSH_OK="true"
+            fi
+          fi
+
+          if [[ "${BRANCH_PUSH_OK}" == "true" ]]; then
+            PR_URL="$(gh pr create --repo "${GITHUB_REPOSITORY}" \
+              --base "${TARGET_BRANCH}" \
+              --head "${FALLBACK_BRANCH}" \
+              --title "${COMMIT_MSG}" \
+              --body "Ghi nhận kết quả kiểm thử thủ công Microsoft Graph API vào \`test-log.md\`." 2>/dev/null || true)"
+            if [[ -n "${PR_URL}" ]]; then
+              echo "::notice::Đã đẩy log lên nhánh '${FALLBACK_BRANCH}' và tạo Pull Request: ${PR_URL}"
+            else
+              echo "::notice::Đã đẩy log lên nhánh '${FALLBACK_BRANCH}'. Hãy tạo Pull Request vào '${TARGET_BRANCH}'."
+            fi
+            rm -f "${PUSH_ERR_LOG}" "${FALLBACK_ERR_LOG}"
+            exit 0
+          fi
+
+          MAIN_ERR="$(tr '\n' ' ' < "${PUSH_ERR_LOG}")"
+          BRANCH_ERR="$(tr '\n' ' ' < "${FALLBACK_ERR_LOG}")"
+          rm -f "${PUSH_ERR_LOG}" "${FALLBACK_ERR_LOG}"
+          echo "::error::Không thể ghi test-log.md vào '${TARGET_BRANCH}' (${MAIN_ERR}) hoặc tạo nhánh '${FALLBACK_BRANCH}' (${BRANCH_ERR}). Vui lòng kiểm tra Settings -> Actions -> General -> Workflow permissions -> chọn 'Read and write permissions'."
+          exit 1
