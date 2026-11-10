@@ -8,11 +8,11 @@ Báo cáo tổng hợp tự động hằng tuần cho dự án **Zoka Graph Test
 > - Các hạng mục Microsoft Graph chưa được cấp quyền hoặc chưa cấu hình xác thực sẽ hiển thị `UNAVAILABLE`, tuyệt đối không tạo dữ liệu giả.
 
 <!-- WEEK:2026-W46 -->
-<!-- FINGERPRINT:85d0ab2b6327 -->
+<!-- FINGERPRINT:0a7ba567ce16 -->
 ## Week 2026-W46
 
 - **Reporting Window:** 2026-11-03 to 2026-11-10 (Asia/Ho_Chi_Minh)
-- **Last Updated:** 2026-11-10 21:07 (Asia/Ho_Chi_Minh)
+- **Last Updated:** 2026-11-10 21:32 (Asia/Ho_Chi_Minh)
 - **Project:** Zoka Graph Test App (`m365-graph-sandbox-test`)
 - **Privacy Level:** Public-Safe Aggregated Summary (PII & IDs Stripped)
 
@@ -21,11 +21,11 @@ Báo cáo tổng hợp tự động hằng tuần cho dự án **Zoka Graph Test
 | Metric | Value |
 | :--- | :--- |
 | Data Source | GitHub REST API |
-| Developer Commits | 3 |
+| Developer Commits | 4 |
 | Automated Log Commits | 0 |
 | Active Commit Days | 1 |
-| Push Events (Public API) | 0 |
-| Workflow Runs Completed | 3 completed (1 success, 2 failed/other) |
+| Push Events (Public API) | 4 |
+| Workflow Runs Completed | 2 completed (1 success, 1 failed/other) |
 
 ### 2. Microsoft 365 Sandbox & Graph Activity (Read-Only)
 
