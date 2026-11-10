@@ -8,11 +8,11 @@ Báo cáo tổng hợp tự động hằng tuần cho dự án **Zoka Graph Test
 > - Các hạng mục Microsoft Graph chưa được cấp quyền hoặc chưa cấu hình xác thực sẽ hiển thị `UNAVAILABLE`, tuyệt đối không tạo dữ liệu giả.
 
 <!-- WEEK:2026-W46 -->
-<!-- FINGERPRINT:06adb806e660 -->
+<!-- FINGERPRINT:cae03f28f3c4 -->
 ## Week 2026-W46
 
 - **Reporting Window:** 2026-11-03 to 2026-11-10 (Asia/Ho_Chi_Minh)
-- **Last Updated:** 2026-11-10 21:38 (Asia/Ho_Chi_Minh)
+- **Last Updated:** 2026-11-10 21:54 (Asia/Ho_Chi_Minh)
 - **Project:** Zoka Graph Test App (`m365-graph-sandbox-test`)
 - **Privacy Level:** Public-Safe Aggregated Summary (PII & IDs Stripped)
 
@@ -22,7 +22,7 @@ Báo cáo tổng hợp tự động hằng tuần cho dự án **Zoka Graph Test
 | :--- | :--- |
 | Data Source | GitHub REST API |
 | Developer Commits | 5 |
-| Automated Log Commits | 1 |
+| Automated Log Commits | 2 |
 | Active Commit Days | 1 |
 | Push Events (Public API) | 5 |
 | Workflow Runs Completed | 2 completed (1 success, 1 failed/other) |
@@ -31,7 +31,7 @@ Báo cáo tổng hợp tự động hằng tuần cho dự án **Zoka Graph Test
 
 | Metric | Status / Aggregated Count |
 | :--- | :--- |
-| Authentication Mode | UNAVAILABLE (Credentials not configured) |
+| Authentication Mode | UNAVAILABLE (No valid OIDC assertion or Client Secret) |
 | Directory Users (Count Only) | UNAVAILABLE |
 | Directory Groups (Count Only) | UNAVAILABLE |
 | Entra App Registrations (Count Only) | UNAVAILABLE |
